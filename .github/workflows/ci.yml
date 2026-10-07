@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  qualite:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Installer les dependances
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: mypy
+        run: python -m mypy src/ tests/
+
+      - name: pytest
+        run: python -m pytest -v
+
+      - name: Preambule sqlite3
+        run: python preambule.py
+
+      - name: Pipeline de bout en bout
+        run: python -m pipeline --rapport
+
+      - name: Idempotence (une relance ne doit rien reinserer)
+        run: |
+          python -m pipeline
+          test "$(python -c "
+          import sqlite3
+          print(sqlite3.connect('transactions.db').execute('SELECT COUNT(*) FROM transactions').fetchone()[0])
+          ")" = "18"
+
+      - name: Code de retour non nul en cas d'echec
+        run: |
+          if python -m pipeline --donnees donnees_ko --base ko.db --injecter-erreur; then
+            echo "la pipeline aurait du echouer"
+            exit 1
+          fi
